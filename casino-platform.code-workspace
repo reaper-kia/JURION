@@ -1,0 +1,10 @@
+{
+  "folders": [
+    { "path": "services/identity_service" },
+    { "path": "services/gateway" },
+    { "path": "services/wallet_service" },
+    { "path": "services/casino_service" },
+    { "path": "packages/platform_contracts" },
+    { "path": "." , "name": "root (docs, compose, infra)" }
+  ]
+}

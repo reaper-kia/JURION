@@ -1,0 +1,13 @@
+---
+- name: Check connect
+  ansible.builtin.ping:
+  become: false
+  
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      - git 
+      - curl
+      - ca-certificates
+    state: present
+    update_cache: true

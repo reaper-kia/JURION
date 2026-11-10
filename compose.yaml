@@ -1,0 +1,125 @@
+name: casino-platform
+
+services:
+  identity_service:
+    build:
+      context: .
+      dockerfile: services/identity_service/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://identity:${IDENTITY_DB_PASSWORD:-identity_local}@identity_db:5432/identity
+    ports:
+      - "50052:50052"
+    depends_on:
+      identity_db:
+        condition: service_healthy
+
+  wallet_service:
+    build:
+      context: .
+      dockerfile: services/wallet_service/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://wallet:${WALLET_DB_PASSWORD:-wallet_local}@wallet_db:5432/wallet
+    ports:
+      - "50053:50053"
+    depends_on:
+      wallet_db:
+        condition: service_healthy
+
+  casino_service:
+    build:
+      context: .
+      dockerfile: services/casino_service/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://casino:${CASINO_DB_PASSWORD:-casino_local}@casino_db:5432/casino
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "50051:50051"
+    depends_on:
+      casino_db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    environment:
+      CASINO_GRPC_TARGET: casino_service:50051
+      IDENTITY_GRPC_TARGET: identity_service:50052
+      WALLET_GRPC_TARGET: wallet_service:50053
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      - casino_service
+      - identity_service
+      - wallet_service
+
+  identity_db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: identity
+      POSTGRES_USER: identity
+      POSTGRES_PASSWORD: ${IDENTITY_DB_PASSWORD:-identity_local}
+    ports:
+      - "5433:5432"
+    volumes:
+      - identity_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U identity -d identity"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  wallet_db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: wallet
+      POSTGRES_USER: wallet
+      POSTGRES_PASSWORD: ${WALLET_DB_PASSWORD:-wallet_local}
+    ports:
+      - "5434:5432"
+    volumes:
+      - wallet_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wallet -d wallet"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  casino_db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: casino
+      POSTGRES_USER: casino
+      POSTGRES_PASSWORD: ${CASINO_DB_PASSWORD:-casino_local}
+    ports:
+      - "5435:5432"
+    volumes:
+      - casino_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U casino -d casino"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+
+volumes:
+  identity_db_data:
+  wallet_db_data:
+  casino_db_data:
+  redis_data:

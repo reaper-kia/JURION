@@ -1,0 +1,11 @@
+---
+- name: Deploy Casino Platform
+  hosts: casino_platform
+  become: true
+
+  roles:
+   - common
+   - docker
+   - git
+   - env
+   - start

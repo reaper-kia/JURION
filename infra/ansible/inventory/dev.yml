@@ -1,0 +1,20 @@
+all:
+  children:
+    casino_platform:
+      children:
+
+        gateway:
+          hosts: 
+            ubuntu-casino: 
+
+        casino:
+          hosts: 
+            ubuntu-casino: 
+        
+        wallet:
+          hosts: 
+            ubuntu-casino: 
+
+        identity:
+          hosts: 
+            ubuntu-casino: 

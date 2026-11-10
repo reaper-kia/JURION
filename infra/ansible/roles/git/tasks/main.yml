@@ -1,0 +1,8 @@
+---
+- name: Clone Coffee House repository
+  ansible.builtin.git:
+    repo: "{{ casino_platform_repo }}"
+    dest: "{{ deploy_dir }}"
+    version: "{{ casino_platform_version }}"
+    update: true
+  become: false

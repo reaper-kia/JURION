@@ -1,0 +1,66 @@
+name: CI
+
+on: 
+  [push, pull_request]
+
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: docker compose check
+        run: cp .env.example .env && docker compose config
+
+  python:
+    strategy:
+        matrix:
+          service:
+            - casino_service
+            - identity_service
+            - gateway
+            - wallet_service
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: ruff check
+        run: uv run ruff check .
+      - name: ruff format
+        run: uv run ruff format --check .
+      - name: Mypy
+        run: uv run mypy src
+   
+      - name: tests
+        run: uv run pytest
+  
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+  
+      - uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          python-version: "3.13"
+  
+      - name: Buf lint
+        run: buf lint
+        
+      - name: Sync generator dependencies
+        run: uv sync --locked --project services/casino_service
+
+      - name: Generate code
+        run: uv run --locked --project services/casino_service python scripts/generate_proto.py
+
+      - name: generate check
+        run: git diff --exit-code -- packages/platform_contracts/src

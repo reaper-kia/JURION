@@ -1,0 +1,8 @@
+---
+- name: Start Casino Platform
+  community.docker.docker_compose_v2:
+    project_src: "{{ deploy_dir }}"
+    files: compose.yaml
+    state: present
+    build: always
+    wait: true

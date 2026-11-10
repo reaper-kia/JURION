@@ -1,0 +1,8 @@
+---
+deploy_user: reaper
+deploy_dir: /home/reaper/casino_platform
+
+casino_platform_repo: https://github.com/reaper-kia/Casino_Platform.git
+casino_platform_version: main
+
+app_name: casino_platform
