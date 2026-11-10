@@ -1,0 +1,133 @@
+syntax = "proto3";
+
+package conversation.v1;
+
+import "common/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+import "legal_qa/v1/legal_qa_service.proto";
+
+option go_package = "github.com/reaper-kia/JURION/packages/platform_contracts/go/conversation/v1;conversationv1";
+
+service ConversationService {
+  rpc CreateConversation(CreateConversationRequest) returns (CreateConversationResponse);
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+  rpc RetryRun(RetryRunRequest) returns (RetryRunResponse);
+  rpc ListConversations(ListConversationsRequest) returns (ListConversationsResponse);
+  rpc ListMessages(ListMessagesRequest) returns (ListMessagesResponse);
+  rpc GetRun(GetRunRequest) returns (GetRunResponse);
+}
+
+enum RunState {
+  RUN_STATE_UNSPECIFIED = 0;
+  RUN_STATE_RUNNING = 1;
+  RUN_STATE_COMPLETED = 2;
+  RUN_STATE_FAILED = 3;
+}
+
+message Conversation {
+  string id = 1;
+  string knowledge_base_id = 2;
+  string title = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+message Claim {
+  string id = 1;
+  string text = 2;
+  repeated legal_qa.v1.Citation citations = 3;
+}
+
+message Answer {
+  legal_qa.v1.Outcome outcome = 1;
+  string snapshot_id = 2;
+  repeated Claim claims = 3;
+  repeated string missing_information = 4;
+  optional string clarification_question = 5;
+}
+
+message Message {
+  string id = 1;
+  uint32 seq = 2;
+  legal_qa.v1.MessageRole role = 3;
+  string text = 4;
+  google.protobuf.Timestamp created_at = 5;
+  // Present only for the assistant's final message.
+  Answer answer = 6;
+}
+
+message AnswerRun {
+  string run_id = 1;
+  string conversation_id = 2;
+  RunState state = 3;
+  Message user_message = 4;
+  // Present exactly when completed.
+  Message assistant_message = 5;
+  // Present exactly when failed.
+  common.v1.ApiError error = 6;
+}
+
+message CreateConversationRequest {
+  common.v1.ActorContext actor = 1;
+  string knowledge_base_id = 2;
+}
+
+message CreateConversationResponse {
+  Conversation conversation = 1;
+}
+
+message SendMessageRequest {
+  common.v1.ActorContext actor = 1;
+  string conversation_id = 2;
+  string idempotency_key = 3;
+  string text = 4;
+  optional string as_of_date = 5; // YYYY-MM-DD
+}
+
+message SendMessageResponse {
+  AnswerRun run = 1;
+}
+
+message RetryRunRequest {
+  common.v1.ActorContext actor = 1;
+  string run_id = 2;
+  string idempotency_key = 3;
+}
+
+message RetryRunResponse {
+  AnswerRun run = 1;
+}
+
+message ListConversationsRequest {
+  common.v1.ActorContext actor = 1;
+  optional uint32 limit = 2;
+  optional string cursor = 3;
+}
+
+message ListConversationsResponse {
+  repeated Conversation items = 1;
+  optional string next_cursor = 2;
+}
+
+message ListMessagesRequest {
+  common.v1.ActorContext actor = 1;
+  string conversation_id = 2;
+  optional uint32 limit = 3;
+  optional uint32 before_seq = 4;
+}
+
+message ListMessagesResponse {
+  Conversation conversation = 1;
+  repeated Message items = 2;
+  optional uint32 next_before_seq = 3;
+  optional string latest_run_id = 4;
+}
+
+message GetRunRequest {
+  common.v1.ActorContext actor = 1;
+  string run_id = 2;
+}
+
+message GetRunResponse {
+  AnswerRun run = 1;
+}

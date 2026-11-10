@@ -1,0 +1,4 @@
+grpcio>=1.83.0
+grpcio-health-checking>=1.83.0
+protobuf>=7.35.1
+jurion-platform-contracts

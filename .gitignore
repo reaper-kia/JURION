@@ -22,3 +22,7 @@ build
 **/secrets/access-private.pem
 
 infra/ansible/inventory/group_vars/**/secrets.yml
+# Local keys, corpus, and model credentials
+.local/
+*.pem
+knowledge-base.zip

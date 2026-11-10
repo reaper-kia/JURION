@@ -1,0 +1,56 @@
+[project]
+name = "identity-service"
+version = "0.1.0"
+description = "Identity management service"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "alembic>=1.16.0",
+    "argon2-cffi>=25.1.0",
+    "asyncpg>=0.30.0",
+    "jurion-platform-contracts",
+    "grpcio>=1.83.0",
+    "grpcio-health-checking>=1.83.0",
+    "grpcio-reflection>=1.83.0",
+    "protobuf>=7.35.1",
+    "pydantic-settings>=2.10.0",
+    "pyjwt[crypto]>=2.13.0",
+    "redis>=6.0.0",
+    "sqlalchemy[asyncio]>=2.0.0,<2.1",
+]
+
+[project.scripts]
+identity-service = "identity_service.main:main"
+identity-create-admin = "identity_service.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.29,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "grpcio-tools>=1.83.0",
+    "mypy>=1.15.0",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.26.0",
+    "ruff>=0.11.0",
+    "types-grpcio>=1.83.0.20260730",
+    "types-grpcio-health-checking>=1.0.0.20260518",
+    "types-grpcio-reflection>=1.0.0.20260508",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+mypy_path = "src"
+
+[tool.uv.sources]
+jurion-platform-contracts = { path = "../../packages/platform_contracts", editable = true }

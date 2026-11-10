@@ -1,0 +1,8 @@
+Metadata-Version: 2.4
+Name: jurion-legal-qa
+Version: 0.1.0
+Requires-Python: >=3.13
+Requires-Dist: grpcio>=1.83.0
+Requires-Dist: grpcio-health-checking>=1.83.0
+Requires-Dist: protobuf>=7.35.1
+Requires-Dist: jurion-platform-contracts

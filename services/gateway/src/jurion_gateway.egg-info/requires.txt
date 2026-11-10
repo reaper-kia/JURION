@@ -1,0 +1,7 @@
+fastapi>=0.115
+uvicorn>=0.34
+grpcio>=1.83.0
+grpcio-health-checking>=1.83.0
+protobuf>=7.35.1
+pyjwt[crypto]>=2.10
+jurion-platform-contracts

@@ -1,0 +1,7 @@
+services:
+  model_proxy:
+    image: python:3.13-slim
+    command: ["python", "/test/model_proxy.py"]
+    volumes:
+      - ./infra/ci/model_proxy.py:/test/model_proxy.py:ro
+    networks: [backend]

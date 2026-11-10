@@ -1,0 +1,5 @@
+common
+conversation
+gateway
+identity
+legal_qa

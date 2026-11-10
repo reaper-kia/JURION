@@ -1,0 +1,21 @@
+[project]
+name = "jurion-gateway"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = ["fastapi>=0.115", "uvicorn>=0.34", "grpcio>=1.83.0", "grpcio-health-checking>=1.83.0", "protobuf>=7.35.1", "pyjwt[crypto]>=2.10", "jurion-platform-contracts"]
+
+[dependency-groups]
+dev = ["pytest>=8", "httpx>=0.28", "ruff>=0.11"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.uv.sources]
+jurion-platform-contracts = { path = "../../packages/platform_contracts", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

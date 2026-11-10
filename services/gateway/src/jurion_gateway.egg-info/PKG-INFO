@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: jurion-gateway
+Version: 0.1.0
+Requires-Python: >=3.13
+Requires-Dist: fastapi>=0.115
+Requires-Dist: uvicorn>=0.34
+Requires-Dist: grpcio>=1.83.0
+Requires-Dist: grpcio-health-checking>=1.83.0
+Requires-Dist: protobuf>=7.35.1
+Requires-Dist: pyjwt[crypto]>=2.10
+Requires-Dist: jurion-platform-contracts

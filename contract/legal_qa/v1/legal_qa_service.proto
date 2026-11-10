@@ -1,0 +1,121 @@
+syntax = "proto3";
+
+package legal_qa.v1;
+
+import "common/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/reaper-kia/JURION/packages/platform_contracts/go/legal_qa/v1;legalqav1";
+
+service LegalQaService {
+  // Conversation worker only. Does not persist dialog data.
+  rpc Answer(AnswerRequest) returns (AnswerResponse);
+  rpc ListKnowledgeBases(ListKnowledgeBasesRequest) returns (ListKnowledgeBasesResponse);
+  rpc GetSourceChunk(GetSourceChunkRequest) returns (GetSourceChunkResponse);
+  rpc GetSourceFile(GetSourceFileRequest) returns (GetSourceFileResponse);
+}
+
+enum MessageRole {
+  MESSAGE_ROLE_UNSPECIFIED = 0;
+  MESSAGE_ROLE_USER = 1;
+  MESSAGE_ROLE_ASSISTANT = 2;
+}
+
+enum Outcome {
+  OUTCOME_UNSPECIFIED = 0;
+  OUTCOME_ANSWERED = 1;
+  OUTCOME_PARTIALLY_ANSWERED = 2;
+  OUTCOME_NEEDS_CLARIFICATION = 3;
+  OUTCOME_INSUFFICIENT_EVIDENCE = 4;
+  OUTCOME_INVALID_PREMISE = 5;
+  OUTCOME_OUT_OF_SCOPE = 6;
+  OUTCOME_DISALLOWED = 7;
+}
+
+message HistoryMessage {
+  MessageRole role = 1;
+  string text = 2;
+}
+
+message AnswerRequest {
+  string request_id = 1;
+  string run_id = 2;
+  string knowledge_base_id = 3;
+  // Chronological order, ending with the user message being answered.
+  repeated HistoryMessage messages = 4;
+  optional string as_of_date = 5; // YYYY-MM-DD, independent of the server clock.
+  // Apply the earlier of this timestamp and the gRPC context deadline.
+  google.protobuf.Timestamp deadline_at = 6;
+}
+
+message Citation {
+  string chunk_id = 1;
+  string label = 2;
+  string quote = 3;
+}
+
+message VerifiedClaim {
+  string text = 1;
+  repeated Citation citations = 2;
+}
+
+message AnswerResponse {
+  string snapshot_id = 1;
+  Outcome outcome = 2;
+  string text = 3;
+  repeated VerifiedClaim claims = 4;
+  repeated string missing_information = 5;
+  optional string clarification_question = 6;
+  // Both absent when a rule generated the result without a generation call.
+  optional string provider = 7;
+  optional string model = 8;
+}
+
+message KnowledgeBase {
+  string id = 1;
+  string title = 2;
+}
+
+message ListKnowledgeBasesRequest {
+  common.v1.ActorContext actor = 1;
+}
+
+message ListKnowledgeBasesResponse {
+  repeated KnowledgeBase items = 1;
+}
+
+message GetSourceChunkRequest {
+  common.v1.ActorContext actor = 1;
+  string snapshot_id = 2;
+  string chunk_id = 3;
+}
+
+message SourceFileRef {
+  string id = 1;
+  string name = 2;
+  string media_type = 3;
+}
+
+message GetSourceChunkResponse {
+  string chunk_id = 1;
+  string snapshot_id = 2;
+  string document_title = 3;
+  optional string version_label = 4;
+  optional string provision_label = 5;
+  string text = 6;
+  // 1-based and inclusive in the original file.
+  uint32 line_start = 7;
+  uint32 line_end = 8;
+  SourceFileRef file = 9;
+}
+
+message GetSourceFileRequest {
+  common.v1.ActorContext actor = 1;
+  string snapshot_id = 2;
+  string file_id = 3;
+}
+
+message GetSourceFileResponse {
+  SourceFileRef file = 1;
+  bytes content = 2;
+}

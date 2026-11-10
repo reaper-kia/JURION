@@ -1,125 +1,165 @@
-name: casino-platform
+name: jurion
 
 services:
-  identity_service:
-    build:
-      context: .
-      dockerfile: services/identity_service/Dockerfile
-    environment:
-      DATABASE_URL: postgresql+asyncpg://identity:${IDENTITY_DB_PASSWORD:-identity_local}@identity_db:5432/identity
-    ports:
-      - "50052:50052"
-    depends_on:
-      identity_db:
-        condition: service_healthy
-
-  wallet_service:
-    build:
-      context: .
-      dockerfile: services/wallet_service/Dockerfile
-    environment:
-      DATABASE_URL: postgresql+asyncpg://wallet:${WALLET_DB_PASSWORD:-wallet_local}@wallet_db:5432/wallet
-    ports:
-      - "50053:50053"
-    depends_on:
-      wallet_db:
-        condition: service_healthy
-
-  casino_service:
-    build:
-      context: .
-      dockerfile: services/casino_service/Dockerfile
-    environment:
-      DATABASE_URL: postgresql+asyncpg://casino:${CASINO_DB_PASSWORD:-casino_local}@casino_db:5432/casino
-      REDIS_URL: redis://redis:6379/0
-    ports:
-      - "50051:50051"
-    depends_on:
-      casino_db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
   gateway:
     build:
       context: .
       dockerfile: services/gateway/Dockerfile
+    command: ["sh", "-c", "export JWT_PUBLIC_KEY=\"$$(cat /run/jurion/public.pem)\"; exec uvicorn gateway.main:app --host 0.0.0.0 --port 8000 --no-access-log"]
     environment:
-      CASINO_GRPC_TARGET: casino_service:50051
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8000}
+      REFRESH_COOKIE_SECURE: ${REFRESH_COOKIE_SECURE:-true}
+      JWT_ISSUER: jurion-identity
+      JWT_AUDIENCE: jurion-api
       IDENTITY_GRPC_TARGET: identity_service:50052
-      WALLET_GRPC_TARGET: wallet_service:50053
-      REDIS_URL: redis://redis:6379/0
+      CONVERSATION_GRPC_TARGET: conversation_service:50051
+      LEGAL_QA_GRPC_TARGET: legal_qa_service:50053
+      GATEWAY_IDENTITY_RPC_TOKEN: ${GATEWAY_IDENTITY_RPC_TOKEN:?Set GATEWAY_IDENTITY_RPC_TOKEN}
+      GATEWAY_CONVERSATION_RPC_TOKEN: ${GATEWAY_CONVERSATION_RPC_TOKEN:?Set GATEWAY_CONVERSATION_RPC_TOKEN}
+      GATEWAY_LEGAL_QA_RPC_TOKEN: ${GATEWAY_LEGAL_QA_RPC_TOKEN:?Set GATEWAY_LEGAL_QA_RPC_TOKEN}
     ports:
-      - "8000:8000"
+      - "${GATEWAY_BIND_ADDRESS:-127.0.0.1}:${GATEWAY_PORT:-8000}:8000"
+    volumes:
+      - type: bind
+        source: ${JWT_PUBLIC_KEY_FILE:?Set JWT_PUBLIC_KEY_FILE}
+        target: /run/jurion/public.pem
+        read_only: true
+        bind: {create_host_path: false}
     depends_on:
-      - casino_service
-      - identity_service
-      - wallet_service
+      identity_service: {condition: service_started}
+      conversation_service: {condition: service_started}
+      legal_qa_service: {condition: service_started}
+    networks: [backend, edge]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=5)"]
+      interval: 10s
+      timeout: 6s
+      retries: 6
+      start_period: 15s
 
   identity_db:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: identity
-      POSTGRES_USER: identity
-      POSTGRES_PASSWORD: ${IDENTITY_DB_PASSWORD:-identity_local}
-    ports:
-      - "5433:5432"
-    volumes:
-      - identity_db_data:/var/lib/postgresql/data
+      POSTGRES_DB: jurion_identity
+      POSTGRES_USER: jurion_identity
+      POSTGRES_PASSWORD: ${IDENTITY_DB_PASSWORD:?Set IDENTITY_DB_PASSWORD}
+    volumes: ["identity_data:/var/lib/postgresql/data"]
+    networks: [backend]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U identity -d identity"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U jurion_identity -d jurion_identity"]
+      interval: 3s
       timeout: 3s
-      retries: 10
+      retries: 20
 
-  wallet_db:
+  conversation_db:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: wallet
-      POSTGRES_USER: wallet
-      POSTGRES_PASSWORD: ${WALLET_DB_PASSWORD:-wallet_local}
-    ports:
-      - "5434:5432"
-    volumes:
-      - wallet_db_data:/var/lib/postgresql/data
+      POSTGRES_DB: jurion_conversation
+      POSTGRES_USER: jurion_conversation
+      POSTGRES_PASSWORD: ${CONVERSATION_DB_PASSWORD:?Set CONVERSATION_DB_PASSWORD}
+    volumes: ["conversation_data:/var/lib/postgresql/data"]
+    networks: [backend]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U wallet -d wallet"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U jurion_conversation -d jurion_conversation"]
+      interval: 3s
       timeout: 3s
-      retries: 10
+      retries: 20
 
-  casino_db:
+  identity_migrate:
+    build: {context: ., dockerfile: services/identity_service/Dockerfile}
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://jurion_identity:${IDENTITY_DB_PASSWORD:?Set IDENTITY_DB_PASSWORD}@identity_db:5432/jurion_identity
+    depends_on:
+      identity_db: {condition: service_healthy}
+    networks: [backend]
+    restart: "no"
+
+  identity_service:
+    build: {context: ., dockerfile: services/identity_service/Dockerfile}
+    environment:
+      DATABASE_URL: postgresql+asyncpg://jurion_identity:${IDENTITY_DB_PASSWORD:?Set IDENTITY_DB_PASSWORD}@identity_db:5432/jurion_identity
+      ACCESS_TOKEN_PRIVATE_KEY_PATH: /run/jurion/private.pem
+      GATEWAY_IDENTITY_RPC_TOKEN: ${GATEWAY_IDENTITY_RPC_TOKEN:?Set GATEWAY_IDENTITY_RPC_TOKEN}
+      GRPC_ADDRESS: "[::]:50052"
+    volumes:
+      - type: bind
+        source: ${JWT_PRIVATE_KEY_FILE:?Set JWT_PRIVATE_KEY_FILE}
+        target: /run/jurion/private.pem
+        read_only: true
+        bind: {create_host_path: false}
+    depends_on:
+      identity_migrate: {condition: service_completed_successfully}
+    networks: [backend]
+
+  conversation_migrate:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: casino
-      POSTGRES_USER: casino
-      POSTGRES_PASSWORD: ${CASINO_DB_PASSWORD:-casino_local}
-    ports:
-      - "5435:5432"
+      PGHOST: conversation_db
+      PGDATABASE: jurion_conversation
+      PGUSER: jurion_conversation
+      PGPASSWORD: ${CONVERSATION_DB_PASSWORD:?Set CONVERSATION_DB_PASSWORD}
     volumes:
-      - casino_db_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U casino -d casino"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+      - ./infra/compose/conversation-migrate.sql:/migration.sql:ro
+      - ./services/conversation_service/migrations:/migrations:ro
+    command: ["psql", "-f", "/migration.sql"]
+    depends_on:
+      conversation_db: {condition: service_healthy}
+    networks: [backend]
+    restart: "no"
 
-  redis:
-    image: redis:8-alpine
-    command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "6379:6379"
+  conversation_service:
+    build: {context: ., dockerfile: services/conversation_service/Dockerfile}
+    environment:
+      CONVERSATION_DATABASE_URL: postgres://jurion_conversation:${CONVERSATION_DB_PASSWORD:?Set CONVERSATION_DB_PASSWORD}@conversation_db:5432/jurion_conversation?sslmode=disable
+      CONVERSATION_GRPC_ADDRESS: ":50051"
+      LEGAL_QA_GRPC_TARGET: legal_qa_service:50053
+      GATEWAY_CONVERSATION_RPC_TOKEN: ${GATEWAY_CONVERSATION_RPC_TOKEN:?Set GATEWAY_CONVERSATION_RPC_TOKEN}
+      CONVERSATION_LEGAL_QA_RPC_TOKEN: ${CONVERSATION_LEGAL_QA_RPC_TOKEN:?Set CONVERSATION_LEGAL_QA_RPC_TOKEN}
+    depends_on:
+      conversation_migrate: {condition: service_completed_successfully}
+      legal_qa_service: {condition: service_started}
+    networks: [backend]
+
+  legal_qa_import:
+    build: {context: ., dockerfile: services/legal_qa_service/Dockerfile}
+    environment:
+      LEGAL_QA_CATALOG: /data/catalog
     volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+      - legal_catalog:/data/catalog
+      - type: bind
+        source: ${LEGAL_QA_ARCHIVE:?Set LEGAL_QA_ARCHIVE}
+        target: /input/knowledge-base.zip
+        read_only: true
+        bind: {create_host_path: false}
+    command: ["sh", "-ec", "if [ -e /data/catalog/active ]; then python -c 'from pathlib import Path; from legal_qa.corpus import load_snapshot; load_snapshot(Path(\"/data/catalog\"))'; else python -m legal_qa /input/knowledge-base.zip --catalog /data/catalog; fi"]
+    networks: [backend]
+    restart: "no"
 
+  legal_qa_service:
+    build: {context: ., dockerfile: services/legal_qa_service/Dockerfile}
+    environment:
+      LEGAL_QA_CATALOG: /data/catalog
+      LEGAL_QA_GRPC_ADDRESS: "[::]:50053"
+      GATEWAY_LEGAL_QA_RPC_TOKEN: ${GATEWAY_LEGAL_QA_RPC_TOKEN:?Set GATEWAY_LEGAL_QA_RPC_TOKEN}
+      CONVERSATION_LEGAL_QA_RPC_TOKEN: ${CONVERSATION_LEGAL_QA_RPC_TOKEN:?Set CONVERSATION_LEGAL_QA_RPC_TOKEN}
+      LLM_BASE_URL: ${LLM_BASE_URL:?Set LLM_BASE_URL}
+      LLM_API_KEY: ${LLM_API_KEY:?Set LLM_API_KEY}
+      LLM_MODEL: ${LLM_MODEL:?Set LLM_MODEL}
+    volumes: ["legal_catalog:/data/catalog"]
+    depends_on:
+      legal_qa_import: {condition: service_completed_successfully}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks: [backend, provider]
+
+networks:
+  backend:
+    internal: true
+  provider: {}
+  edge: {}
 
 volumes:
-  identity_db_data:
-  wallet_db_data:
-  casino_db_data:
-  redis_data:
+  identity_data: {}
+  conversation_data: {}
+  legal_catalog: {}

@@ -4,7 +4,7 @@ import grpc_tools
 from grpc_tools import protoc
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CONTRACTS_DIR = PROJECT_ROOT / "contracts"
+CONTRACTS_DIR = PROJECT_ROOT / "contract"
 OUTPUT_DIR = PROJECT_ROOT / "packages" / "platform_contracts" / "src"
 
 
@@ -33,6 +33,11 @@ def main() -> None:
     exit_code = protoc.main(arguments)
     if exit_code != 0:
         raise SystemExit(exit_code)
+
+    for file in OUTPUT_DIR.rglob("*_pb2.py"):
+        for directory in (file.parent, file.parent.parent):
+            if directory != OUTPUT_DIR:
+                (directory / "__init__.py").touch()
 
     print(f"Generated {len(proto_files)} proto files into {OUTPUT_DIR}")
 

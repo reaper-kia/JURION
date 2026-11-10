@@ -1,66 +1,106 @@
-name: CI
-
-on: 
-  [push, pull_request]
+name: JURION CI
+on: [push, pull_request]
 
 jobs:
-  compose:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: docker compose check
-        run: cp .env.example .env && docker compose config
-
-  python:
-    strategy:
-        matrix:
-          service:
-            - casino_service
-            - identity_service
-            - gateway
-            - wallet_service
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: services/${{ matrix.service }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v9.0.0
-        with:
-          python-version: "3.13"
-      - name: Install dependencies
-        run: uv sync --locked
-
-      - name: ruff check
-        run: uv run ruff check .
-      - name: ruff format
-        run: uv run ruff format --check .
-      - name: Mypy
-        run: uv run mypy src
-   
-      - name: tests
-        run: uv run pytest
-  
   contracts:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-  
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with: {python-version: '3.13'}
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.23', cache-dependency-path: services/conversation_service/go.sum}
       - uses: bufbuild/buf-action@v1
-        with:
-          setup_only: true
-      - uses: astral-sh/setup-uv@v9.0.0
-        with:
-          python-version: "3.13"
-  
-      - name: Buf lint
-        run: buf lint
-        
-      - name: Sync generator dependencies
-        run: uv sync --locked --project services/casino_service
+        with: {setup_only: true}
+      - uses: arduino/setup-protoc@v3
+        with: {version: '36.0', repo-token: '${{ secrets.GITHUB_TOKEN }}'}
+      - run: buf lint && buf build
+      - run: uv sync --locked --project services/identity_service
+      - run: uv run --locked --project services/identity_service python scripts/generate_proto.py
+      - run: services/conversation_service/generate.sh
+      - run: git diff --exit-code -- packages/platform_contracts/src packages/platform_contracts/go
 
-      - name: Generate code
-        run: uv run --locked --project services/casino_service python scripts/generate_proto.py
+  python:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: jurion_test
+          POSTGRES_PASSWORD: jurion_test
+          POSTGRES_DB: jurion_identity_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U jurion_test -d jurion_identity_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with: {python-version: '3.13'}
+      - run: uv sync --locked --project services/identity_service
+      - run: uv sync --locked --project services/gateway
+      - run: uv sync --locked --project services/legal_qa_service
+      - name: Identity tests against isolated PostgreSQL
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://jurion_test:jurion_test@localhost:5432/jurion_identity_test
+        run: uv run --locked --project services/identity_service pytest services/identity_service/tests
+      - run: uv run --locked --project services/gateway ruff check services/gateway/src services/gateway/tests
+      - run: uv run --locked --project services/gateway ruff format --check services/gateway/src services/gateway/tests
+      - run: uv run --locked --project services/gateway pytest services/gateway/tests
+      - name: Mandatory Legal QA regressions without private corpus
+        run: uv run --locked --project services/legal_qa_service python -m unittest discover -s services/legal_qa_service/tests -p test_final.py -v
+      - name: Legal QA tests
+        working-directory: services/legal_qa_service
+        run: uv run --locked python -m unittest discover -s tests -v
 
-      - name: generate check
-        run: git diff --exit-code -- packages/platform_contracts/src
+  conversation:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: jurion_test
+          POSTGRES_PASSWORD: jurion_test
+          POSTGRES_DB: jurion_conversation_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U jurion_test -d jurion_conversation_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.23', cache-dependency-path: services/conversation_service/go.sum}
+      - name: Apply migration to dedicated test database
+        env: {PGPASSWORD: jurion_test}
+        run: psql -h localhost -U jurion_test -d jurion_conversation_test -v ON_ERROR_STOP=1 -f services/conversation_service/migrations/001_init.sql
+      - name: Run Go tests
+        working-directory: services/conversation_service
+        env:
+          CONVERSATION_TEST_DATABASE_URL: postgres://jurion_test:jurion_test@localhost:5432/jurion_conversation_test?sslmode=disable
+        run: go test ./... -count=1
+
+  stack:
+    runs-on: ubuntu-latest
+    env:
+      COMPOSE_FILE: compose.yaml:infra/ci/compose.yaml
+      COMPOSE_PROJECT_NAME: jurion_ci
+      LLM_BASE_URL: http://model_proxy:55441
+      LEGAL_QA_ARCHIVE: ${{ github.workspace }}/.local/knowledge-base.zip
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare test-only credentials and corpus
+        run: |
+          cp .env.example .env
+          mkdir -p .local
+          openssl genpkey -quiet -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out .local/jurion-private.pem
+          openssl pkey -in .local/jurion-private.pem -pubout -out .local/jurion-public.pem
+          python infra/ci/make_corpus.py
+      - run: docker compose config --quiet
+      - run: docker compose up --build --wait --wait-timeout 180
+      - run: python infra/ci/acceptance.py
+      - name: Diagnostics
+        if: failure()
+        run: docker compose ps -a && docker compose logs --no-color --tail=80
+      - name: Remove isolated CI resources
+        if: always()
+        run: docker compose down --volumes --remove-orphans

@@ -1,0 +1,143 @@
+syntax = "proto3";
+
+package identity.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/reaper-kia/JURION/packages/platform_contracts/go/identity/v1;identityv1";
+
+// Trusted callers only. Register always assigns LAWYER.
+service IdentityService {
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+
+  rpc GetMe(GetMeRequest) returns (GetMeResponse);
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+  rpc BlockUser(BlockUserRequest) returns (BlockUserResponse);
+}
+
+enum UserRole {
+  USER_ROLE_UNSPECIFIED = 0;
+  reserved "USER_ROLE_PLAYER";
+  USER_ROLE_LAWYER = 1;
+  USER_ROLE_ADMIN = 2;
+}
+
+enum UserStatus {
+  USER_STATUS_UNSPECIFIED = 0;
+  USER_STATUS_ACTIVE = 1;
+  USER_STATUS_BLOCKED = 2;
+  USER_STATUS_DELETED = 3;
+}
+
+message RequestContext {
+  // Уникальный идентификатор запроса для логов и tracing.
+  string request_id = 1;
+
+  // Gateway заполняет actor-поля после проверки access token.
+  // Клиентские значения напрямую сюда попадать не должны.
+  optional string actor_identity_user_id = 2;
+  repeated string permissions = 3;
+}
+
+message UserSnapshot {
+  string user_id = 1;
+  string email = 2;
+  string nickname = 3;
+  UserRole role = 4;
+  UserStatus status = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message TokenPair {
+  string access_token = 1;
+  string refresh_token = 2;
+  google.protobuf.Timestamp access_token_expires_at = 3;
+  google.protobuf.Timestamp refresh_token_expires_at = 4;
+}
+
+message RegisterRequest {
+  RequestContext context = 1;
+  string email = 2;
+  string nickname = 3;
+  string password = 4;
+}
+
+message RegisterResponse {
+  UserSnapshot user = 1;
+  TokenPair tokens = 2;
+}
+
+message LoginRequest {
+  RequestContext context = 1;
+  string email = 2;
+  string password = 3;
+}
+
+message LoginResponse {
+  UserSnapshot user = 1;
+  TokenPair tokens = 2;
+}
+
+message RefreshTokenRequest {
+  RequestContext context = 1;
+  string refresh_token = 2;
+}
+
+message RefreshTokenResponse {
+  TokenPair tokens = 1;
+}
+
+// For all_sessions=true the verified actor is required. Otherwise revoke
+// the family of the presented refresh token.
+message LogoutRequest {
+  RequestContext context = 1;
+  string refresh_token = 2;
+  bool all_sessions = 3;
+}
+
+message LogoutResponse {}
+
+message GetMeRequest {
+  RequestContext context = 1;
+}
+
+message GetMeResponse {
+  UserSnapshot user = 1;
+}
+
+message GetUserRequest {
+  RequestContext context = 1;
+  string user_id = 2;
+}
+
+message GetUserResponse {
+  UserSnapshot user = 1;
+}
+
+message ListUsersRequest {
+  RequestContext context = 1;
+  optional UserRole role = 2;
+  optional UserStatus status = 3;
+  uint32 limit = 4;
+  string cursor = 5;
+}
+
+message ListUsersResponse {
+  repeated UserSnapshot users = 1;
+  string next_cursor = 2;
+}
+
+message BlockUserRequest {
+  RequestContext context = 1;
+  string user_id = 2;
+  string reason = 3;
+}
+
+message BlockUserResponse {
+  UserSnapshot user = 1;
+}

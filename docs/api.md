@@ -1,20 +1,25 @@
 # API веб-чата юридического ассистента
 
-Контракт MVP для фронтенда. По нему можно собрать чат, историю и просмотр источников на моках. Поля описывают данные для интерфейса и могут отличаться от структуры хранения.
+Контракт MVP для фронтенда. Браузер работает с Gateway по HTTP/JSON. Поля описывают интерфейс, а внутренняя реализация определена в [ТЗ по сервисам](tasks/README.md).
 
 ## Общие правила
 
 - Базовый путь — `/api/v1`. Фронтенд использует относительные URL. При локальной разработке проксируем этот путь на бэкенд.
 - Тела запросов и ответы API передаются как `application/json`. Исключение — получение оригинала источника.
 - ID — непрозрачные строки. Время передаётся в UTC в формате `2026-11-10T16:30:00Z`. Дата события передаётся отдельно в формате `YYYY-MM-DD`, без часового пояса.
-- Для MVP бэкенд выдаёт браузеру анонимную сессию через cookie при первом успешном `GET /knowledge-bases`. Фронт вызывает его при запуске. Cookie устанавливается сервером и отправляется браузером с запросами. Список чатов, история и попытки ответа доступны только в этой сессии.
+- Защищённые маршруты принимают `Authorization: Bearer <access_token>`. Вход и обновление токенов описаны ниже. Диалоги принадлежат пользователю Identity и доступны после повторного входа.
 - `text`, тексты цитат и документы показываем как текст. Для переносов строк подходит `white-space: pre-wrap`.
 
 Все пути в таблицах указаны относительно `/api/v1`.
 
 | Метод и путь | Назначение | Успешный ответ |
 | --- | --- | --- |
-| `GET /knowledge-bases` | Получить доступные базы и инициализировать сессию | `200` · `{ items: KnowledgeBase[] }` |
+| `POST /auth/register` | Зарегистрировать юриста и войти | `201` · `AuthResponse` и refresh cookie |
+| `POST /auth/login` | Войти | `200` · `AuthResponse` и refresh cookie |
+| `POST /auth/refresh` | Обновить токены | `200` · `AccessTokenResponse` и новая refresh cookie |
+| `POST /auth/logout` | Выйти | `204` · очистка refresh cookie |
+| `GET /auth/me` | Получить профиль вошедшего пользователя | `200` · `{ user: UserSnapshot }` |
+| `GET /knowledge-bases` | Получить доступные базы | `200` · `{ items: KnowledgeBase[] }` |
 | `POST /conversations` | Создать диалог в выбранной базе | `201` · `Conversation` |
 | `GET /conversations` | Получить список диалогов | `200` · `ConversationPage` |
 | `GET /conversations/{conversation_id}/messages` | Открыть историю диалога | `200` · `MessagePage` |
@@ -24,6 +29,39 @@
 | `GET /sources/{snapshot_id}/chunks/{chunk_id}` | Открыть фрагмент с реквизитами источника | `200` · `SourceChunk` |
 | `GET /sources/{snapshot_id}/files/{file_id}` | Получить оригинал источника | `200` · `text/plain; charset=utf-8` для TXT |
 
+## Вход и токены
+
+| Маршрут | Тело HTTP | Аутентификация |
+| --- | --- | --- |
+| `POST /auth/register` | `{email, nickname, password}` | Без токена. Identity присваивает роль `lawyer` |
+| `POST /auth/login` | `{email, password}` | Без токена |
+| `POST /auth/refresh` | Без тела | Refresh cookie |
+| `POST /auth/logout` | `{all_sessions?: boolean}` или без тела | Refresh cookie для текущей сессии. При `all_sessions: true` обязателен access JWT |
+| `GET /auth/me` | Без тела | Access JWT |
+
+```ts
+type UserSnapshot = {
+  user_id: string;
+  email: string;
+  nickname: string;
+  role: "lawyer" | "admin";
+  status: "active" | "blocked" | "deleted";
+  created_at: string;
+  updated_at: string;
+};
+
+type AccessTokenResponse = {
+  access_token: string;
+  access_token_expires_at: string;
+};
+
+type AuthResponse = AccessTokenResponse & { user: UserSnapshot };
+```
+
+Gateway устанавливает refresh cookie `jurion_refresh` с `HttpOnly`, `SameSite=Lax`, путём `/api/v1/auth` и `Secure` на HTTPS. Refresh token не приходит в JSON. Веб работает same-origin. Браузер сам отправляет cookie. Access token храним в памяти приложения.
+
+После перезагрузки фронт может выполнить `POST /auth/refresh`, получить access token и запросить `GET /auth/me`. Если токен истёк во время запроса, выполняем один refresh и повторяем исходный запрос. Параллельные запросы используют один общий refresh, поскольку успешная ротация делает старый refresh недействительным. Для отправки вопроса и retry повтор сохраняет прежний `Idempotency-Key`. При `REFRESH_INVALID` показываем вход. При временном сбое сохраняем состояние интерфейса и предлагаем повтор.
+
 ## Базы, диалоги и история
 
 `GET /knowledge-bases` в MVP возвращает одну базу. Если доступна только одна, фронт может выбрать её автоматически.
@@ -31,17 +69,17 @@
 ```json
 {
   "items": [
-    { "id": "kb_psb", "title": "База знаний ПСБ" }
+    { "id": "meridian", "title": "Корпус ООО «Меридиан»" }
   ]
 }
 ```
 
-Для `POST /conversations` отправляем `{"knowledge_base_id":"kb_psb"}`. Поле обязательное.
+Для `POST /conversations` отправляем `{"knowledge_base_id":"meridian"}`. Поле обязательное; используйте непрозрачный ID из GET /knowledge-bases, не хардкодите пример.
 
 ```json
 {
   "id": "conv_01",
-  "knowledge_base_id": "kb_psb",
+  "knowledge_base_id": "meridian",
   "title": "Новый диалог",
   "created_at": "2026-11-10T16:30:00Z",
   "updated_at": "2026-11-10T16:30:00Z"
@@ -85,6 +123,7 @@ type MessagePage = {
 ```http
 POST /api/v1/conversations/conv_01/messages
 Content-Type: application/json
+Authorization: Bearer <access_token>
 Idempotency-Key: e8bd1e40-d076-46d0-8f53-4abb605ab184
 ```
 
@@ -136,7 +175,7 @@ type AnswerRun = RunBase & (
 | --- | --- | --- |
 | Ответ уже готов | `POST` возвращает `200` с `state: "completed"` | Реплику ассистента с цитатами или пояснением |
 | Вопрос принят, ответ готовится | `POST` возвращает `202` с `state: "running"` | Реплику пользователя и индикатор ожидания. Запрашивать `GET /runs/{run_id}` примерно раз в секунду до конечного состояния |
-| Обработка завершилась технической ошибкой | `POST` может вернуть `503` или `504` с `error.run_id`. `GET /runs/{run_id}` возвращает `200` с `state: "failed"` и `error` | Ошибку рядом с вопросом. Кнопку «Повторить» показывать, когда `error.retryable` равно `true` |
+| Обработка завершилась технической ошибкой | При повторе `POST` возможен `502`, `503` или `504` с `error.run_id`. `GET /runs/{run_id}` возвращает `200` с `state: "failed"` и `error` | Ошибку рядом с вопросом. Кнопку «Повторить» показывать, когда `error.retryable` равно `true` |
 
 Если соединение оборвалось до получения `run_id`, повторяем исходный `POST` с прежним ключом. При отображении данных из ответа и истории объединяем реплики по `id`, сортируем по `seq`.
 
@@ -277,7 +316,7 @@ type SourceChunk = {
 }
 ```
 
-`line_start` и `line_end` — номера строк оригинала с единицы, обе границы включены. В панели показываем `text` и ссылку «Открыть оригинал» по `file.url`. Если интерфейс сам загружает оригинал, может выделить указанный диапазон строк.
+`line_start` и `line_end` — номера строк оригинала с единицы, обе границы включены. В панели показываем `text`. По кнопке «Открыть оригинал» фронт запрашивает `file.url` с тем же заголовком `Authorization`, затем отображает полученный текст и может выделить нужные строки. Для скачивания можно создать локальный Blob из ответа. Токен в URL не передаётся.
 
 ## Ошибки API
 
@@ -308,23 +347,53 @@ type ApiError = {
 
 | HTTP | `error.code` | Действие фронта |
 | --- | --- | --- |
-| `401` | `SESSION_REQUIRED` | Инициализировать сессию через `GET /knowledge-bases` и обновить список чатов |
+| `401` | `AUTH_REQUIRED` | Один раз обновить access token или показать вход |
+| `401` | `INVALID_CREDENTIALS` | Показать ошибку входа |
+| `401` | `REFRESH_INVALID` | Показать форму входа |
+| `403` | `FORBIDDEN` | Показать отсутствие доступа |
 | `404` | `NOT_FOUND` | Показать, что чат, попытка или источник недоступны |
 | `409` | `RUN_IN_PROGRESS` | Загрузить текущую попытку по `error.run_id` |
 | `409` | `IDEMPOTENCY_CONFLICT` | Сообщить об ошибке отправки. Для изменённого вопроса использовать новый ключ |
 | `409` | `RETRY_NOT_AVAILABLE` | Обновить историю. Повтор для этой попытки больше недоступен |
+| `409` | `EMAIL_ALREADY_EXISTS` | Предложить войти с этим email |
+| `413` | `PAYLOAD_TOO_LARGE` | Сохранить черновик и предложить сократить запрос |
 | `422` | `VALIDATION_ERROR` | Подсветить поля из `field_errors` и сохранить введённый текст |
 | `429` | `RATE_LIMITED` | Предложить повторить позже. Учитывать `Retry-After`, если сервер его вернул |
+| `502` | `UPSTREAM_ERROR` | Показать техническую ошибку. Если есть `run_id`, загрузить состояние попытки |
 | `503` | `MODEL_UNAVAILABLE` | При наличии `run_id` загрузить состояние попытки. Иначе повторить исходную отправку с прежним ключом после паузы |
+| `503` | `SERVICE_UNAVAILABLE` | Показать временную недоступность. При повторе отправки сохранить ключ |
 | `504` | `ANSWER_TIMEOUT` | Загрузить состояние попытки по `run_id` и показать возможность повтора согласно `retryable` |
+| `504` | `UPSTREAM_TIMEOUT` | При неопределённом результате отправки повторить её с прежним ключом |
 
 Для неизвестного кода и сетевого сбоя показываем общую техническую ошибку, сохраняя введённый вопрос. Сбой при открытии источника показываем в панели источника, чтобы ответ оставался доступен.
 
 ## Что покрыть моками
 
-1. Создание диалога, отправка вопроса, готовый ответ с цитатой и открытие источника.
+1. Вход, создание диалога, отправка вопроса, готовый ответ с цитатой и открытие источника.
 2. Ответ через `202`, затем `GET /runs/{id}` с `running` и `completed`.
 3. `needs_clarification` и следующая реплика в том же диалоге.
 4. `partially_answered` с цитатой и списком недостающих данных. `insufficient_evidence` с пустым списком цитат.
 5. Технический сбой и повтор с тем же `user_message.id`.
-6. Перезагрузка страницы во время ожидания. История и состояние восстанавливаются через `latest_run_id`.
+6. Перезагрузка страницы во время ожидания. После refresh история и состояние восстанавливаются через `latest_run_id`.
+
+### Примеры исходов Legal QA
+
+Ниже только форма поля `answer`; реальные `snapshot_id`, `chunk_id` и ссылки берутся из ответа сервера. При создании диалога ID базы берётся из `GET /api/v1/knowledge-bases`.
+
+```json
+{"outcome":"answered","text":"Арендная плата — 450 000 рублей в месяц, не позднее 5-го числа.","claims":[{"text":"Арендная плата — 450 000 рублей в месяц.","citations":[{"chunk_id":"<opaque-chunk-id>","label":"Договор аренды, п. 3.1","quote":"<exact-source-text>"}]}],"missing_information":[],"snapshot_id":"<opaque-snapshot-id>"}
+```
+
+```json
+{"outcome":"partially_answered","text":"Подтверждена сумма оплаты. Для определения срока не хватает применимого пункта.","claims":[{"text":"Подтверждена сумма оплаты.","citations":[{"chunk_id":"<opaque-chunk-id>","label":"Договор, пункт об оплате","quote":"<exact-source-text>"}]}],"missing_information":["Применимый пункт о сроке оплаты"],"snapshot_id":"<opaque-snapshot-id>"}
+```
+
+```json
+{"outcome":"needs_clarification","text":"Когда подписана спецификация на партию?","claims":[],"missing_information":["Дата подписания спецификации"],"clarification_question":"Когда подписана спецификация на партию?","snapshot_id":"<opaque-snapshot-id>"}
+```
+
+Технический сбой принятой попытки возвращается в `AnswerRun`, а не как бизнес-исход ответа:
+
+```json
+{"state":"failed","error":{"code":"MODEL_UNAVAILABLE","message":"Model unavailable","retryable":true},"assistant_message":null}
+```

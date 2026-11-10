@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package common.v1;
+
+option go_package = "github.com/reaper-kia/JURION/packages/platform_contracts/go/common/v1;commonv1";
+
+// Gateway builds this from a verified access token. It is accepted only over
+// the authenticated internal channel, never populated from public JSON.
+message ActorContext {
+  string request_id = 1;
+  string user_id = 2;
+  repeated string permissions = 3;
+}
+
+message FieldError {
+  string field = 1;
+  string message = 2;
+}
+
+// Persisted failure of an accepted answer run or a public error DTO.
+// For rejected RPCs use gRPC status and the documented trailing metadata.
+message ApiError {
+  string code = 1;
+  string message = 2;
+  bool retryable = 3;
+  optional string run_id = 4;
+  repeated FieldError field_errors = 5;
+}

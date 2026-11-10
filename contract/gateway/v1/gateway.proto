@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package gateway.v1;
+
+import "common/v1/common.proto";
+import "conversation/v1/conversation_service.proto";
+import "google/protobuf/timestamp.proto";
+import "identity/v1/identity_service.proto";
+import "legal_qa/v1/legal_qa_service.proto";
+
+option go_package = "github.com/reaper-kia/JURION/packages/platform_contracts/go/gateway/v1;gatewayv1";
+
+// Public HTTP data schema. Gateway exposes REST under /api/v1.
+// Path parameters, Authorization, Idempotency-Key and refresh cookies are
+// handled by HTTP adapters. The public snake_case JSON in docs/api.md is
+// mapped explicitly (e.g. enum strings and nulls).
+// CreateConversation maps to conversation.v1.Conversation. SendMessage,
+// GetRun and RetryRun map to conversation.v1.AnswerRun at the JSON root.
+
+message RegisterBody {
+  string email = 1;
+  string nickname = 2;
+  string password = 3;
+}
+
+message LoginBody {
+  string email = 1;
+  string password = 2;
+}
+
+message LogoutBody {
+  bool all_sessions = 1;
+}
+
+message AccessTokenResponse {
+  string access_token = 1;
+  google.protobuf.Timestamp access_token_expires_at = 2;
+}
+
+message AuthResponse {
+  identity.v1.UserSnapshot user = 1;
+  string access_token = 2;
+  google.protobuf.Timestamp access_token_expires_at = 3;
+}
+
+message MeResponse {
+  identity.v1.UserSnapshot user = 1;
+}
+
+message CreateConversationBody {
+  string knowledge_base_id = 1;
+}
+
+message SendMessageBody {
+  string text = 1;
+  optional string as_of_date = 2;
+}
+
+message KnowledgeBasePage {
+  repeated legal_qa.v1.KnowledgeBase items = 1;
+}
+
+message ConversationPage {
+  repeated conversation.v1.Conversation items = 1;
+  optional string next_cursor = 2;
+}
+
+message MessagePage {
+  conversation.v1.Conversation conversation = 1;
+  repeated conversation.v1.Message items = 2;
+  optional uint32 next_before_seq = 3;
+  optional string latest_run_id = 4;
+}
+
+message SourceFile {
+  string id = 1;
+  string name = 2;
+  string media_type = 3;
+  string url = 4;
+}
+
+message SourceChunk {
+  string chunk_id = 1;
+  string snapshot_id = 2;
+  string document_title = 3;
+  optional string version_label = 4;
+  optional string provision_label = 5;
+  string text = 6;
+  uint32 line_start = 7;
+  uint32 line_end = 8;
+  SourceFile file = 9;
+}
+
+message ErrorResponse {
+  common.v1.ApiError error = 1;
+}
